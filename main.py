@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import shutil
 import requests
 import random
 import pathlib
@@ -37,11 +38,6 @@ def get_file_name(url):
     return pathlib.PurePath(url_component).name
 
 
-def creates_directory():
-    directory_path = Path.cwd() / "images"
-    Path(directory_path).mkdir(parents=True, exist_ok=True)
-
-
 def save_comic_file(url, file_name):
     response = requests.get(url["img"])
     response.raise_for_status()
@@ -49,7 +45,7 @@ def save_comic_file(url, file_name):
         file.write(response.content)
 
 
-def download_server_comic(server_url):
+def download_comic(server_url):
     name_file = os.listdir("images")[0]
     with open(Path.cwd() / "images" / f"{name_file}", "rb") as file:
         file = {'photo': file}
@@ -58,14 +54,14 @@ def download_server_comic(server_url):
     return response.json()
 
 
-def save_photo_server(token, group_id, decoded_response):
+def save_photo(token, group_id, server, photo, comic_hash):
     params = {
         "access_token": token,
         "v": "5.131",
         "group_id": group_id,
-        "server": decoded_response["server"],
-        "photo": decoded_response["photo"],
-        "hash": decoded_response["hash"],
+        "server": server,
+        "photo": photo,
+        "hash": comic_hash,
     }
     response = requests.post(
         "https://api.vk.com/method/photos.saveWallPhoto", params=params
@@ -74,16 +70,16 @@ def save_photo_server(token, group_id, decoded_response):
     return response.json()
 
 
-def publish_comic(token, group_id, alt, decoded_response):
+def publish_comic(token, group_id, alt, media_id, owner_id):
     params = {
         "access_token": token,
         "v": "5.131",
-        "message": alt["alt"],
+        "message": alt,
         "owner_id": f"-{group_id}",
         "from_group": 1,
-        "media_id": decoded_response["id"],
+        "media_id": media_id,
         "attachments":
-            f"photo" f"{decoded_response['owner_id']}_{decoded_response['id']}"
+            f"photo" f"{owner_id}_{media_id}"
     }
     response = requests.post(
         "https://api.vk.com/method/wall.post",
@@ -92,30 +88,43 @@ def publish_comic(token, group_id, alt, decoded_response):
     response.raise_for_status()
 
 
-def deletes_file():
-    os.remove(Path.cwd() / "images" / os.listdir("images")[0])
-
-
 def main():
     load_dotenv()
-    creates_directory()
+    directory_path = Path.cwd() / "images"
+    Path(directory_path).mkdir(parents=True, exist_ok=True)
     vk_group_id = os.getenv("VK_GROUP_ID")
     vk_token = os.getenv("VK_TOKEN")
     random_comic_response = get_random_comic_url()
-    file_name = get_file_name(random_comic_response["img"])
-    server_url = get_server_url(vk_token, vk_group_id)["response"][
-        "upload_url"]
+    img = random_comic_response["img"]
+    alt = random_comic_response["alt"]
+    file_name = get_file_name(img)
+    response_user = get_server_url(vk_token, vk_group_id)
+    upload_url = response_user["response"]["upload_url"]
     try:
         save_comic_file(random_comic_response, file_name)
-        server_comic_response = download_server_comic(server_url)
-        decoded_response = save_photo_server(
-            vk_token, vk_group_id, server_comic_response
-        )["response"][0]
+        server_comic_response = download_comic(upload_url)
+        server = server_comic_response["server"]
+        photo = server_comic_response["photo"]
+        _hash = server_comic_response["hash"]
+        decoded_response = save_photo(
+            vk_token,
+            vk_group_id,
+            server,
+            photo,
+            _hash
+        )
+        response_content = decoded_response["response"][0]
+        media_id = response_content["id"]
+        owner_id = response_content["owner_id"]
         publish_comic(
-            vk_token, vk_group_id, random_comic_response, decoded_response
+            vk_token,
+            vk_group_id,
+            alt,
+            media_id,
+            owner_id
         )
     finally:
-        deletes_file()
+        shutil.rmtree(Path.cwd() / "images")
 
 
 if __name__ == '__main__':
